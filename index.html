@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERP – Testing Progress</title>
+<style>
+  /* ============ Design tokens (edit colors here) ============ */
+  :root {
+    /* Odoo-inspired dark theme */
+    --odoo-purple: #714B67;   /* Odoo brand purple */
+    --odoo-teal: #017E84;     /* Odoo secondary teal */
+    --bg-base: #181a23;       /* page background (dark slate) */
+    --bg-glow-1: #714B67;     /* background glow – purple */
+    --bg-glow-2: #017E84;     /* background glow – teal */
+    --bg-glow-3: #3b3150;     /* background glow – deep violet */
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-strong: rgba(255, 255, 255, 0.10);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --text: #f3f2f7;
+    --text-2: rgba(243, 242, 247, 0.76);
+    --text-3: rgba(243, 242, 247, 0.52);
+    --radius: 22px;
+    --active-bg: #714B67;     /* selected tab / button */
+    --active-text: #ffffff;
+    --panel-solid: rgba(28, 30, 41, 0.88);  /* drawer & tooltip */
+    /* Status colors (always shown with a label, never color alone) */
+    --passed: #0ca30c;
+    --failed: #d03b3b;
+    --progress: #fab219;
+    --nottested: rgba(255, 255, 255, 0.32);
+    --accent: #21b6b7;        /* lighter Odoo teal for highlights */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg-base);
+    overflow-x: hidden;
+  }
+  /* Blurred warm "room" background built from gradients */
+  .backdrop {
+    position: fixed; inset: -10%; z-index: 0;
+    background:
+      radial-gradient(38% 45% at 12% 18%, var(--bg-glow-1) 0%, transparent 70%),
+      radial-gradient(32% 40% at 88% 12%, var(--bg-glow-2) 0%, transparent 70%),
+      radial-gradient(45% 50% at 75% 88%, var(--bg-glow-3) 0%, transparent 70%),
+      radial-gradient(30% 35% at 20% 85%, rgba(1, 126, 132, 0.45) 0%, transparent 70%),
+      linear-gradient(160deg, #222433 0%, #181a23 55%, #12131a 100%);
+    filter: blur(50px) saturate(115%);
+    opacity: 0.9;
+  }
+  .shell {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    padding: 20px 20px 96px 92px;
+    max-width: 1500px; margin: 0 auto;
+  }
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
+  }
+  .lift { transition: transform .25s ease, background .25s ease; }
+  .lift:hover { transform: translateY(-5px); background: var(--glass-strong); }
+
+  /* ============ Top bar ============ */
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 14px; border-radius: 999px; margin-bottom: 22px;
+  }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700;
+    background: linear-gradient(135deg, var(--odoo-purple), var(--odoo-teal));
+    color: #fff; flex: none;
+  }
+  .welcome { font-size: 14px; line-height: 1.2; }
+  .welcome b { display: block; font-size: 15px; }
+  .welcome span { color: var(--text-3); font-size: 12px; }
+  .search {
+    flex: 1; max-width: 460px; margin: 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border);
+  }
+  .search input {
+    flex: 1; background: transparent; border: 0; outline: 0;
+    color: var(--text); font-size: 14px;
+  }
+  .search input::placeholder { color: var(--text-3); }
+  .updated { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,.12); color: var(--text); cursor: pointer;
+    display: grid; place-items: center; flex: none;
+  }
+
+  /* ============ Left icon rail ============ */
+  .rail {
+    position: fixed; z-index: 2; left: 18px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 8px; padding: 10px 8px; border-radius: 999px;
+  }
+  .rail button {
+    position: relative; width: 40px; height: 40px; border-radius: 50%;
+    border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .rail button:hover, .rail button.active { background: var(--active-bg); color: var(--active-text); }
+  .rail button .tip {
+    position: absolute; left: 50px; white-space: nowrap; font-size: 12px;
+    padding: 4px 10px; border-radius: 999px; background: var(--active-bg); color: var(--active-text);
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .rail button:hover .tip { opacity: 1; }
+
+  /* ============ Bottom pill nav ============ */
+  .tabs {
+    position: fixed; z-index: 2; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; gap: 4px; padding: 6px; border-radius: 999px;
+  }
+  .tabs button {
+    border: 0; background: transparent; color: var(--text-2);
+    padding: 9px 18px; border-radius: 999px; cursor: pointer; font-size: 13px;
+    white-space: nowrap;
+  }
+  .tabs button.active { background: var(--active-bg); color: var(--active-text); font-weight: 600; }
+
+  h1.page { font-size: 26px; font-weight: 600; margin: 4px 4px 18px; }
+  .sub { color: var(--text-3); font-size: 13px; }
+
+  /* ============ Stat tiles ============ */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-bottom: 18px; }
+  .tile { padding: 20px; }
+  .tile .label { font-size: 13px; color: var(--text-2); display: flex; justify-content: space-between; align-items: center; }
+  .tile .value { font-size: 34px; font-weight: 700; margin: 8px 0 4px; }
+  .tile .hint { font-size: 12px; color: var(--text-3); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--odoo-teal), var(--accent)); }
+
+  /* ============ Panels ============ */
+  .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .panel { padding: 20px 22px; }
+  .panel h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  .panel .sub { margin-bottom: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Stacked bars per screen */
+  .srow { display: grid; grid-template-columns: 150px 1fr 54px; gap: 12px; align-items: center; padding: 6px 0; cursor: pointer; }
+  .srow:hover .sname { color: var(--text); }
+  .sname { font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stack { display: flex; gap: 2px; height: 14px; }
+  .stack i { display: block; height: 100%; }
+  .stack i:first-child { border-radius: 4px 0 0 4px; }
+  .stack i:last-child { border-radius: 0 4px 4px 0; }
+  .stack i:only-child { border-radius: 4px; }
+  .spct { font-size: 12px; color: var(--text-2); text-align: right; }
+
+  /* Donut */
+  .donut-wrap { display: grid; place-items: center; padding: 6px 0 10px; }
+  .donut-center { font-size: 30px; font-weight: 700; }
+  .donut-list { display: grid; gap: 8px; font-size: 13px; }
+  .donut-list div { display: flex; justify-content: space-between; color: var(--text-2); }
+  .donut-list b { color: var(--text); }
+
+  /* Blockers */
+  .blocker { padding: 14px 16px; border-radius: 16px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); margin-bottom: 10px; cursor: pointer; }
+  .blocker:hover { background: rgba(255,255,255,.14); }
+  .blocker .top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .blocker .title { font-weight: 600; font-size: 14px; }
+  .blocker p { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.5; }
+  .blocker .fix { margin-top: 6px; color: var(--text-3); font-size: 12px; }
+
+  /* Badges */
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); white-space: nowrap; }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.16); color: var(--text-2); white-space: nowrap; display: inline-block; }
+  td.td-module { white-space: nowrap; width: 1%; }  /* module column fits its name */
+
+  /* ============ Screen filter dropdown ============ */
+  .dd { position: relative; }
+  .dd-btn {
+    display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); color: var(--text); font-size: 13px;
+    transition: background .2s, border-color .2s;
+  }
+  .dd-btn:hover, .dd.open .dd-btn { background: rgba(113, 75, 103, 0.35); border-color: rgba(113, 75, 103, 0.8); }
+  .dd-btn.filtered { background: var(--active-bg); border-color: var(--active-bg); }
+  .dd-label { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+  .dd-label small { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .dd-btn.filtered .dd-label small { color: rgba(255,255,255,.75); }
+  .dd-label b { font-weight: 600; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dd-btn .chev { color: var(--text-3); transition: transform .2s; }
+  .dd.open .chev { transform: rotate(180deg); }
+  .dd-menu {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: 290px; max-height: 360px; overflow-y: auto;
+    padding: 8px; border-radius: 18px; display: none;
+    background: var(--panel-solid); border: 1px solid var(--glass-border);
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .dd.open .dd-menu { display: block; animation: pop .16s ease-out; }
+  /* Slim scrollbar inside the dropdown menus (Firefox + Chrome/Edge/Safari) */
+  .dd-menu, .module-menu { scrollbar-width: thin; scrollbar-color: rgba(113, 75, 103, 0.9) transparent; }
+  .dd-menu::-webkit-scrollbar, .module-menu::-webkit-scrollbar { width: 6px; }
+  .dd-menu::-webkit-scrollbar-track, .module-menu::-webkit-scrollbar-track { background: transparent; margin: 12px 0; }
+  .dd-menu::-webkit-scrollbar-thumb, .module-menu::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--odoo-purple), var(--odoo-teal)); border-radius: 999px;
+  }
+  .dd-menu::-webkit-scrollbar-thumb:hover, .module-menu::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .dd-item {
+    width: 100%; display: grid; grid-template-columns: 1fr auto 16px; gap: 6px 10px; align-items: center;
+    padding: 9px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text);
+    cursor: pointer; text-align: left; font-size: 13px;
+  }
+  .dd-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .dd-item.selected { background: rgba(113, 75, 103, 0.35); }
+  .dd-item .dd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dd-item .dd-count { font-size: 11px; color: var(--text-2); background: rgba(255,255,255,.1); padding: 1px 8px; border-radius: 999px; }
+  .dd-item .dd-check { color: var(--accent); font-weight: 700; }
+  .dd-item .dd-bar { grid-column: 1 / 4; display: flex; gap: 2px; height: 4px; }
+  .dd-item .dd-bar i { display: block; height: 100%; border-radius: 2px; }
+  .panel { position: relative; }
+  .filters { position: relative; z-index: 5; }
+
+  /* Screen cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+  .card { padding: 18px; cursor: pointer; }
+  .card .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .card h4 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card .counts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--text-2); }
+
+  /* Features table */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .filters select, .fbtn {
+    background: rgba(255,255,255,.06); color: var(--text); border: 1px solid var(--glass-border);
+    border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+  }
+  .filters select option { color: #f3f2f7; background: #222433; }
+  .fbtn.active { background: var(--active-bg); color: var(--active-text); border-color: var(--active-bg); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--text-3); padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,.18); }
+  td { padding: 11px 10px; border-bottom: 1px solid rgba(255,255,255,.08); color: var(--text-2); vertical-align: top; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: rgba(255,255,255,.07); color: var(--text); }
+  td.id { color: var(--text); font-weight: 600; white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+  .empty { color: var(--text-3); padding: 20px; text-align: center; }
+
+  /* Drawer */
+  .drawer-bg { position: fixed; inset: 0; z-index: 5; background: rgba(0,0,0,.35); display: none; }
+  .drawer {
+    position: fixed; z-index: 6; top: 16px; right: 16px; bottom: 16px; width: min(560px, calc(100% - 32px));
+    padding: 24px; overflow-y: auto; transform: translateX(110%); transition: transform .3s ease;
+    background: var(--panel-solid);
+  }
+  .drawer.open { transform: none; }
+  .drawer h2 { margin: 6px 0 14px; font-size: 20px; }
+  .drawer .sec { margin-top: 16px; }
+  .drawer .sec h5 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+  .drawer .sec div { white-space: pre-line; font-size: 14px; line-height: 1.55; color: var(--text-2); }
+  details summary { cursor: pointer; color: var(--text-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed; z-index: 10; pointer-events: none; display: none;
+    padding: 8px 12px; border-radius: 12px; font-size: 12px; line-height: 1.5;
+    background: var(--panel-solid); border: 1px solid rgba(255,255,255,.16);
+  }
+
+  .loading { display: grid; place-items: center; min-height: 60vh; color: var(--text-2); }
+
+  @media (max-width: 900px) {
+    .shell { padding: 16px 16px 96px 16px; }
+    .rail { display: none; }
+    .grid-2 { grid-template-columns: 1fr; }
+    .srow { grid-template-columns: 110px 1fr 44px; }
+    .updated { display: none; }
+    .tabs { max-width: calc(100% - 24px); overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs button { padding: 8px 12px; white-space: nowrap; }
+    .topbar { gap: 10px; }
+    .welcome span { display: none; }
+    .search { min-width: 0; }
+    .search input { min-width: 0; }
+    h1.page .sub { display: block; margin-top: 4px; }
+  }
+
+  /* ============ Module switcher & grouping ============ */
+  .topbar { position: relative; z-index: 10; }  /* keeps the module menu above the panels */
+  .module-picker { position: relative; flex: none; }
+  @media (max-width: 900px) {
+    .module-btn .mb-text small { display: none; }
+    .module-btn .mb-text b { max-width: 90px; }
+    .module-menu { width: min(300px, calc(100vw - 40px)); }
+  }
+  .module-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 6px 12px 6px 6px; border-radius: 999px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border);
+    color: var(--text); font-size: 13px; transition: background .2s, border-color .2s;
+  }
+  .module-btn:hover, .module-picker.open .module-btn { background: rgba(113, 75, 103, 0.35); border-color: rgba(113, 75, 103, 0.8); }
+  .module-btn .mb-icon {
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--odoo-purple), var(--odoo-teal)); color: #fff;
+  }
+  .module-btn .mb-text { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+  .module-btn .mb-text small { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .module-btn .mb-text b { font-size: 13px; font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .module-btn .chev { color: var(--text-3); transition: transform .2s; }
+  .module-picker.open .chev { transform: rotate(180deg); }
+  .module-menu {
+    position: absolute; top: calc(100% + 10px); left: 0; z-index: 20; width: 300px;
+    padding: 8px; border-radius: 18px; display: none;
+    background: var(--panel-solid); border: 1px solid var(--glass-border);
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .module-picker.open .module-menu { display: block; animation: pop .16s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .module-menu .mm-title { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px 8px; }
+  .mm-item {
+    width: 100%; display: grid; grid-template-columns: 1fr auto 18px; gap: 4px 12px; align-items: center;
+    padding: 10px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text);
+    cursor: pointer; text-align: left; font-size: 13px;
+  }
+  .mm-item:hover { background: rgba(255, 255, 255, 0.07); }
+  .mm-item.selected { background: rgba(113, 75, 103, 0.35); }
+  .mm-item .mm-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mm-item .mm-pct { font-size: 12px; color: var(--text-2); }
+  .mm-item .mm-check { color: var(--accent); font-weight: 700; }
+  .mm-item .mm-bar { grid-column: 1 / 3; height: 4px; border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .mm-item .mm-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--odoo-teal), var(--accent)); }
+  .mm-item .mm-meta { grid-column: 1 / 3; font-size: 11px; color: var(--text-3); }
+  .mm-sep { height: 1px; background: rgba(255,255,255,.08); margin: 6px 6px; }
+  .chip-module { background: rgba(113, 75, 103, 0.55); color: #fff; }
+  .group-title { margin: 6px 4px 12px; font-size: 18px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+
+<!-- Left icon rail -->
+<nav class="rail glass" id="rail"></nav>
+
+<div class="shell">
+  <!-- Top bar -->
+  <header class="topbar glass">
+    <div class="avatar">E</div>
+    <div class="welcome"><b>ERP Testing</b><span>Odoo implementation progress</span></div>
+    <!-- Module switcher: "All Modules" or one module (one Google Sheet tab per module) -->
+    <div class="module-picker" id="modulePicker">
+      <button class="module-btn" id="moduleBtn" aria-haspopup="listbox" aria-expanded="false"></button>
+      <div class="module-menu" id="moduleMenu" role="listbox"></div>
+    </div>
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="search" placeholder="Search features, e.g. deposit, quotation…">
+    </label>
+    <div class="updated" id="updated"></div>
+    <button class="icon-btn" id="refresh" title="Refresh data">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+    </button>
+  </header>
+
+  <main id="view"><div class="loading">Loading data…</div></main>
+</div>
+
+<!-- Bottom pill navigation -->
+<nav class="tabs glass" id="tabs"></nav>
+
+<!-- Feature details drawer -->
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer glass" id="drawer"></aside>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+/* =====================================================================
+   DATA SOURCE
+   - Inside Google Apps Script: reads every module tab through getData() (Code.gs).
+   - Local preview file: uses window.SAMPLE_DATA injected by build_preview.py.
+   Each module = one sheet tab with the columns below; the tab name is the module name.
+   ===================================================================== */
+window.SAMPLE_DATA = window.SAMPLE_DATA || null; /*__SAMPLE_DATA__*/
+// Hosted outside Google (index.html): the data comes from this web app URL. Filled by build_site.py.
+window.DATA_URL = 'https://script.google.com/macros/s/AKfycbzww1uAnrIzrzs7lH-H7nYbciSwXY3S6T-N6fQ22UZMjze8Ckq2g_JHFxC4sVmuXo_cfQ/exec';
+
+// Column names in each tab's header row (change here if you rename a column).
+// "Module" in the sheet is the Odoo app the screen belongs to (Tourism, CRM, Accounting…).
+const COL = {
+  id: 'Feature ID', app: 'Module', screen: 'Menu/Screen', title: 'Feature Description',
+  design: 'Technical Design', tests: 'Test Cases / Scenarios', testing: 'Testing Status',
+  issues: 'Issues', solution: 'Solution', retest: 'Retest Result', status: 'Status',
+  risks: 'Risks', notes: 'Technical Notes'
+};
+
+// Status shown on the dashboard (takes the retest result into account).
+const STATUS = [
+  { key: 'Passed',      color: 'var(--passed)',    icon: '✓' },
+  { key: 'Failed',      color: 'var(--failed)',    icon: '!' },
+  { key: 'In Progress', color: 'var(--progress)',  icon: '◔' },
+  { key: 'Not Tested',  color: 'var(--nottested)', icon: '○' }
+];
+
+const ICONS = {
+  modules:  '<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/>',
+  overview: '<path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+  screens:  '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+  blockers: '<path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/>',
+  features: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+  retests:  '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'
+};
+const TAB_LABELS = { modules: 'All Modules', overview: 'Overview', screens: 'Screens', blockers: 'Blockers', features: 'Features', retests: 'Retests' };
+
+let MODULES = [];   // module (tab) names in sheet order
+let FEATURES = [];  // every feature of every module
+let UPDATED = null;
+let state = { tab: 'modules', module: 'All', screen: 'All', status: 'All', q: '' };
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const js = (s) => esc(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const statusOf = (k) => STATUS.find(s => s.key === k) || STATUS[3];
+const allMode = () => state.module === 'All';
+
+function effectiveStatus(f) {
+  if ((f.retest || '').trim() === 'Passed') return 'Passed';
+  const t = (f.testing || '').trim();
+  if (t === 'Passed' || t === 'Failed' || t === 'In Progress') return t;
+  return 'Not Tested';
+}
+
+function normalize(data) {
+  // Accepts { modules:[{name, headers, rows}] } or the older single-tab { headers, rows }.
+  const mods = data.modules || [{ name: 'Tourism', headers: data.headers, rows: data.rows }];
+  MODULES = [];
+  FEATURES = [];
+  mods.forEach(m => {
+    const idx = {};
+    m.headers.forEach((h, i) => { idx[String(h).trim()] = i; });
+    const get = (row, name) => idx[name] == null ? '' : row[idx[name]];
+    const list = m.rows.map(r => {
+      const f = { module: m.name };
+      Object.keys(COL).forEach(k => { f[k] = String(get(r, COL[k]) || '').trim(); });
+      f.screen = f.screen || f.app || 'Other';
+      f.eff = effectiveStatus(f);
+      f.key = m.name + '|' + f.id;
+      return f;
+    }).filter(f => f.id && f.title);
+    MODULES.push(m.name);
+    FEATURES.push(...list);
+  });
+  if (!allMode() && !MODULES.includes(state.module)) state.module = 'All';
+  UPDATED = data.updated ? new Date(data.updated) : new Date();
+}
+
+// Features of the selected module (or all modules)
+const scope = () => allMode() ? FEATURES : FEATURES.filter(f => f.module === state.module);
+
+function countBy(list) {
+  const c = { total: list.length };
+  STATUS.forEach(s => { c[s.key] = list.filter(f => f.eff === s.key).length; });
+  c.pct = c.total ? Math.round(c.Passed / c.total * 100) : 0;
+  return c;
+}
+
+function screens(list) {
+  list = list || scope();
+  const order = [];
+  list.forEach(f => { if (!order.includes(f.screen)) order.push(f.screen); });
+  return order.map(name => ({ name, ...countBy(list.filter(f => f.screen === name)) }));
+}
+
+function badge(key) {
+  const s = statusOf(key);
+  return `<span class="badge"><span class="dot" style="background:${s.color}"></span>${s.icon} ${esc(key)}</span>`;
+}
+
+const scopeLabel = () => allMode() ? 'all modules' : `the ${esc(state.module)} module`;
+
+/* ===================== Views ===================== */
+function viewModules() {
+  const c = countBy(FEATURES);
+  const mods = MODULES.map(name => ({ name, ...countBy(FEATURES.filter(f => f.module === name)),
+    blockers: FEATURES.filter(f => f.module === name && f.eff === 'Failed').length }));
+  return `
+  <h1 class="page">All Modules <span class="sub">— testing progress across the whole ERP project</span></h1>
+  <section class="tiles">
+    ${tile('Project completion', c.pct + '%', `${c.Passed} of ${c.total} features passed · ${MODULES.length} modules`, 'var(--accent)', c.pct)}
+    ${tile('Passed', c.Passed, 'Working as expected', 'var(--passed)')}
+    ${tile('Failed / Blocked', c.Failed, 'Need a fix before go-live', 'var(--failed)')}
+    ${tile('Not Tested Yet', c['Not Tested'] + c['In Progress'], `${c['In Progress']} in progress`, 'var(--nottested)')}
+  </section>
+  <section class="glass panel" style="margin-bottom:16px">
+    <h3>Modules compared</h3>
+    <div class="sub">Share of each module's features by test result — click a module to open it</div>
+    ${legend()}
+    ${mods.map(m => stackRow(m, `openModule('${js(m.name)}')`)).join('')}
+  </section>
+  <section class="cards">${mods.map(m => `
+    <div class="glass card lift" onclick="openModule('${js(m.name)}')">
+      <div class="head"><h4>${esc(m.name)}</h4>${ring(m.pct)}</div>
+      <div class="sub" style="margin-top:4px">${m.total} features · ${m.blockers} blocker${m.blockers === 1 ? '' : 's'}</div>
+      <div class="stack" style="margin-top:10px">${stackParts(m)}</div>
+      <div class="counts">${STATUS.map(st => `<span><span class="dot" style="background:${st.color}"></span> ${st.key}: <b>${m[st.key]}</b></span>`).join('')}</div>
+    </div>`).join('')}
+  </section>`;
+}
+
+function viewOverview() {
+  const list = scope();
+  const c = countBy(list);
+  const sc = screens(list);
+  const blockers = list.filter(f => f.eff === 'Failed');
+  return `
+  <h1 class="page">${allMode() ? 'Overview' : esc(state.module)} <span class="sub">— where the technical team is on ${scopeLabel()}</span></h1>
+  <section class="tiles">
+    ${tile('Completion', c.pct + '%', `${c.Passed} of ${c.total} features passed testing`, 'var(--accent)', c.pct)}
+    ${tile('Passed', c.Passed, 'Working as expected', 'var(--passed)')}
+    ${tile('Failed / Blocked', c.Failed, 'Need a fix before go-live', 'var(--failed)')}
+    ${tile('Not Tested Yet', c['Not Tested'] + c['In Progress'], `${c['In Progress']} in progress`, 'var(--nottested)')}
+  </section>
+  <section class="grid-2">
+    <div class="glass panel">
+      <h3>Progress by screen</h3>
+      <div class="sub">Share of features per screen by test result — click a screen to see its features</div>
+      ${legend()}
+      ${sc.map(s => stackRow(s, `openScreen('${js(s.name)}')`)).join('') || '<div class="empty">No features yet.</div>'}
+    </div>
+    <div class="glass panel">
+      <h3>Status mix</h3>
+      <div class="sub">All ${c.total} features</div>
+      <div class="donut-wrap">${donut(c)}</div>
+      <div class="donut-list">
+        ${STATUS.map(s => `<div><span><span class="dot" style="background:${s.color}"></span> ${s.icon} ${s.key}</span><b>${c[s.key]}</b></div>`).join('')}
+      </div>
+    </div>
+  </section>
+  <section class="glass panel">
+    <h3>Top blockers</h3>
+    <div class="sub">${blockers.length} features failed testing — <a href="#" onclick="go('blockers');return false" style="color:var(--accent)">see all</a></div>
+    ${blockers.slice(0, 4).map(blockerCard).join('') || '<div class="empty">No blockers 🎉</div>'}
+  </section>`;
+}
+
+function tile(label, value, hint, color, pct) {
+  return `<div class="glass tile lift">
+    <div class="label">${esc(label)} <span class="dot" style="background:${color}"></span></div>
+    <div class="value">${esc(value)}</div>
+    <div class="hint">${esc(hint)}</div>
+    ${pct != null ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}
+  </div>`;
+}
+
+function legend() {
+  return `<div class="legend">${STATUS.map(s => `<span><span class="dot" style="background:${s.color}"></span>${s.key}</span>`).join('')}</div>`;
+}
+
+function stackParts(s) {
+  return STATUS.filter(st => s[st.key] > 0).map(st =>
+    `<i style="width:${s[st.key] / s.total * 100}%;background:${st.color}" data-tip="${esc(s.name)} — ${st.key}: ${s[st.key]} of ${s.total}"></i>`).join('');
+}
+
+function stackRow(s, onclick) {
+  return `<div class="srow" onclick="${onclick}">
+    <div class="sname" title="${esc(s.name)}">${esc(s.name)}</div>
+    <div class="stack">${stackParts(s)}</div>
+    <div class="spct">${s.pct}%</div>
+  </div>`;
+}
+
+function donut(c) {
+  const R = 70, W = 18, C = 2 * Math.PI * R, gap = c.total > 1 ? 3 : 0;
+  let offset = 0;
+  const arcs = STATUS.filter(s => c[s.key] > 0).map(s => {
+    const len = c[s.key] / c.total * C;
+    const seg = `<circle r="${R}" cx="90" cy="90" fill="none" stroke="${s.color}" stroke-width="${W}"
+      stroke-dasharray="${Math.max(len - gap, 0.1)} ${C}" stroke-dashoffset="${-offset}" transform="rotate(-90 90 90)"
+      data-tip="${s.key}: ${c[s.key]} (${Math.round(c[s.key] / c.total * 100)}%)" style="cursor:pointer"/>`;
+    offset += len;
+    return seg;
+  }).join('');
+  return `<svg width="180" height="180" viewBox="0 0 180 180">
+    <circle r="${R}" cx="90" cy="90" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="${W}"/>
+    ${arcs}
+    <text x="90" y="88" text-anchor="middle" fill="#fff" font-size="30" font-weight="700">${c.pct}%</text>
+    <text x="90" y="110" text-anchor="middle" fill="rgba(255,255,255,.6)" font-size="12">passed</text>
+  </svg>`;
+}
+
+function blockerCard(f) {
+  return `<div class="blocker" onclick="openFeature('${js(f.key)}')">
+    <div class="top">${allMode() ? `<span class="chip chip-module">${esc(f.module)}</span>` : ''}<span class="chip">${esc(f.id)}</span><span class="chip">${esc(f.screen)}</span><span class="title">${esc(f.title)}</span></div>
+    <p>${esc(f.issues || 'Failed — no issue description yet.')}</p>
+    ${f.solution ? `<div class="fix">Proposed fix: ${esc(f.solution)}</div>` : ''}
+  </div>`;
+}
+
+function viewScreens() {
+  // In "All Modules" mode, screens are grouped under their module.
+  const groups = allMode() ? MODULES : [state.module];
+  return `<h1 class="page">Screens <span class="sub">— progress per Odoo screen in ${scopeLabel()}</span></h1>
+  ${groups.map(mod => {
+    const list = FEATURES.filter(f => f.module === mod);
+    if (!list.length) return '';
+    return `${allMode() ? `<h3 class="group-title">${esc(mod)}</h3>` : ''}
+    <section class="cards" style="margin-bottom:18px">${screens(list).map(s => `
+      <div class="glass card lift" onclick="openModule('${js(mod)}', '${js(s.name)}')">
+        <div class="head"><h4>${esc(s.name)}</h4>${ring(s.pct)}</div>
+        <div class="sub" style="margin-top:4px">${s.total} feature${s.total === 1 ? '' : 's'}</div>
+        <div class="stack" style="margin-top:10px">${stackParts(s)}</div>
+        <div class="counts">${STATUS.map(st => `<span><span class="dot" style="background:${st.color}"></span> ${st.key}: <b>${s[st.key]}</b></span>`).join('')}</div>
+      </div>`).join('')}
+    </section>`;
+  }).join('')}`;
+}
+
+function ring(pct) {
+  const R = 20, C = 2 * Math.PI * R;
+  return `<svg width="52" height="52" viewBox="0 0 52 52">
+    <circle r="${R}" cx="26" cy="26" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="5"/>
+    <circle r="${R}" cx="26" cy="26" fill="none" stroke="var(--passed)" stroke-width="5" stroke-linecap="round"
+      stroke-dasharray="${pct / 100 * C} ${C}" transform="rotate(-90 26 26)"/>
+    <text x="26" y="30" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">${pct}%</text>
+  </svg>`;
+}
+
+function viewBlockers() {
+  const list = scope().filter(f => f.eff === 'Failed');
+  const groups = {};
+  list.forEach(f => {
+    const g = allMode() ? `${f.module} · ${f.screen}` : f.screen;
+    (groups[g] = groups[g] || []).push(f);
+  });
+  return `<h1 class="page">Blockers <span class="sub">— ${list.length} features in ${scopeLabel()} that failed testing and need a fix</span></h1>
+  ${Object.keys(groups).map(g => `<section class="glass panel" style="margin-bottom:16px">
+      <h3>${esc(g)} <span class="sub">(${groups[g].length})</span></h3><div style="height:10px"></div>
+      ${groups[g].map(blockerCard).join('')}
+    </section>`).join('') || '<div class="glass panel empty">No blockers 🎉</div>'}`;
+}
+
+function viewFeatures() {
+  const base = scope();
+  const scrStats = screens(base);
+  const q = state.q.toLowerCase();
+  const list = base.filter(f =>
+    (state.screen === 'All' || f.screen === state.screen) &&
+    (state.status === 'All' || f.eff === state.status) &&
+    (!q || [f.module, f.id, f.title, f.screen, f.design, f.issues].join(' ').toLowerCase().includes(q)));
+  return `<h1 class="page">Features <span class="sub">— ${list.length} of ${base.length} in ${scopeLabel()}</span></h1>
+  <div class="glass panel">
+    <div class="filters">
+      ${screenPicker(scrStats, base)}
+      ${['All', ...STATUS.map(s => s.key)].map(s => `<button class="fbtn ${s === state.status ? 'active' : ''}" onclick="state.status='${s}';render()">${s}</button>`).join('')}
+      ${state.q ? `<button class="fbtn" onclick="state.q='';$('#search').value='';render()">Clear search “${esc(state.q)}” ✕</button>` : ''}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>${allMode() ? '<th>Module</th>' : ''}<th>ID</th><th>Screen</th><th>Feature</th><th>Status</th><th>Retest</th></tr></thead>
+      <tbody>${list.map(f => `<tr onclick="openFeature('${js(f.key)}')">
+        ${allMode() ? `<td class="td-module"><span class="chip chip-module">${esc(f.module)}</span></td>` : ''}
+        <td class="id">${esc(f.id)}</td><td>${esc(f.screen)}</td><td>${esc(f.title)}</td>
+        <td>${badge(f.eff)}</td><td>${esc(f.retest || '—')}</td></tr>`).join('')}</tbody>
+    </table></div>
+    ${list.length ? '' : '<div class="empty">No features match these filters.</div>'}
+  </div>`;
+}
+
+/* Screen filter: pill button + glass dropdown (same style as the module picker) */
+function screenPicker(stats, base) {
+  const all = countBy(base);
+  const label = state.screen === 'All' ? 'All screens' : state.screen;
+  const item = (value, name, c) => {
+    const sel = value === state.screen;
+    return `<button class="dd-item ${sel ? 'selected' : ''}" role="option" aria-selected="${sel}" onclick="pickScreen('${js(value)}')">
+      <span class="dd-name">${esc(name)}</span>
+      <span class="dd-count">${c.total}</span>
+      <span class="dd-check">${sel ? '✓' : ''}</span>
+      <span class="dd-bar">${stackParts({ name, ...c })}</span>
+    </button>`;
+  };
+  return `<div class="dd" id="screenPicker">
+    <button class="dd-btn ${state.screen !== 'All' ? 'filtered' : ''}" onclick="toggleDropdown('screenPicker', event)" aria-haspopup="listbox">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${ICONS.screens}</svg>
+      <span class="dd-label"><small>Screen</small><b>${esc(label)}</b></span>
+      <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="dd-menu" role="listbox">
+      <div class="mm-title">Filter by screen</div>
+      ${item('All', 'All screens', all)}<div class="mm-sep"></div>
+      ${stats.map(s => item(s.name, s.name, s)).join('')}
+    </div>
+  </div>`;
+}
+function toggleDropdown(id, e) {
+  if (e) e.stopPropagation();
+  const el = document.getElementById(id);
+  const open = !el.classList.contains('open');
+  document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open'));
+  el.classList.toggle('open', open);
+}
+function pickScreen(name) { state.screen = name; render(); }
+document.addEventListener('click', e => { if (!e.target.closest('.dd')) document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open')); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open')); });
+
+function viewRetests() {
+  const list = scope().filter(f => f.retest);
+  return `<h1 class="page">Retests <span class="sub">— features in ${scopeLabel()} that failed, were fixed and tested again</span></h1>
+  <div class="glass panel"><div class="table-wrap"><table>
+    <thead><tr>${allMode() ? '<th>Module</th>' : ''}<th>ID</th><th>Feature</th><th>First test</th><th>Fix</th><th>Retest</th></tr></thead>
+    <tbody>${list.map(f => `<tr onclick="openFeature('${js(f.key)}')">
+      ${allMode() ? `<td class="td-module"><span class="chip chip-module">${esc(f.module)}</span></td>` : ''}
+      <td class="id">${esc(f.id)}</td><td>${esc(f.title)}</td><td>${badge(f.testing || 'Not Tested')}</td>
+      <td>${esc(f.solution).slice(0, 140)}${f.solution.length > 140 ? '…' : ''}</td><td>${f.retest === 'Pending' ? '<span class="badge"><span class="dot" style="background:var(--progress)"></span>◔ Pending</span>' : badge(f.retest)}</td></tr>`).join('')}</tbody>
+  </table></div>${list.length ? '' : '<div class="empty">No retests yet.</div>'}</div>`;
+}
+
+/* ===================== Drawer ===================== */
+function openFeature(key) {
+  const f = FEATURES.find(x => x.key === key); if (!f) return;
+  const sec = (t, v) => v ? `<div class="sec"><h5>${t}</h5><div>${esc(v)}</div></div>` : '';
+  $('#drawer').innerHTML = `
+    <button class="icon-btn" style="float:right" onclick="closeDrawer()">✕</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="chip chip-module">${esc(f.module)}</span><span class="chip">${esc(f.id)}</span>${f.app ? `<span class="chip">Odoo app: ${esc(f.app)}</span>` : ''}<span class="chip">${esc(f.screen)}</span></div>
+    <h2>${esc(f.title)}</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${badge(f.eff)}${f.retest ? `<span class="badge">Retest: ${esc(f.retest)}</span>` : ''}${f.status ? `<span class="badge">Delivery: ${esc(f.status)}</span>` : ''}</div>
+    ${sec('What it does', f.design)}
+    ${sec('Test scenarios', f.tests)}
+    ${sec('Issue found', f.issues)}
+    ${sec('Solution', f.solution)}
+    ${sec('Risks', f.risks)}
+    ${f.notes ? `<div class="sec"><details><summary>Team notes</summary><div style="margin-top:8px;white-space:pre-line;font-size:13px;color:var(--text-3)">${esc(f.notes)}</div></details></div>` : ''}`;
+  $('#drawer').classList.add('open');
+  $('#drawerBg').style.display = 'block';
+}
+function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerBg').style.display = 'none'; }
+$('#drawerBg').onclick = closeDrawer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+/* ===================== Navigation & render ===================== */
+function go(tab) { state.tab = tab; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function setModule(name) {
+  state.module = name; state.screen = 'All'; state.status = 'All';
+  if (name === 'All') { go('modules'); } else if (state.tab === 'modules') { go('overview'); } else { render(); }
+}
+function openModule(name, screen) {
+  state.module = name; state.status = 'All'; state.screen = screen || 'All';
+  go(screen ? 'features' : 'overview');
+}
+function openScreen(name) { state.screen = name; state.status = 'All'; go('features'); }
+
+function tabsForState() {
+  // "All Modules" tab only makes sense when several modules exist.
+  const t = ['overview', 'screens', 'blockers', 'features', 'retests'];
+  return MODULES.length > 1 ? ['modules', ...t] : t;
+}
+
+function renderNav() {
+  const tabs = tabsForState();
+  if (!tabs.includes(state.tab)) state.tab = tabs[0];
+  $('#tabs').innerHTML = tabs.map(k => `<button class="${k === state.tab ? 'active' : ''}" onclick="${k === 'modules' ? "setModule('All')" : `go('${k}')`}">${TAB_LABELS[k]}</button>`).join('');
+  $('#rail').innerHTML = tabs.map(k => `<button class="${k === state.tab ? 'active' : ''}" onclick="${k === 'modules' ? "setModule('All')" : `go('${k}')`}" aria-label="${TAB_LABELS[k]}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>
+      <span class="tip">${TAB_LABELS[k]}</span></button>`).join('');
+  renderModulePicker();
+}
+
+/* Module picker: pill button + glass dropdown with each module's progress */
+function renderModulePicker() {
+  $('#modulePicker').style.display = MODULES.length > 1 ? '' : 'none';
+  const label = allMode() ? 'All Modules' : state.module;
+  $('#moduleBtn').innerHTML = `
+    <span class="mb-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.modules}</svg></span>
+    <span class="mb-text"><small>Module</small><b>${esc(label)}</b></span>
+    <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>`;
+  const item = (value, name, list) => {
+    const c = countBy(list);
+    const sel = value === state.module;
+    return `<button class="mm-item ${sel ? 'selected' : ''}" role="option" aria-selected="${sel}" onclick="pickModule('${js(value)}')">
+      <span class="mm-name">${esc(name)}</span><span class="mm-pct">${c.pct}%</span><span class="mm-check">${sel ? '✓' : ''}</span>
+      <span class="mm-bar"><i style="width:${c.pct}%"></i></span>
+      <span class="mm-meta">${c.total} features · ${c.Failed} blocker${c.Failed === 1 ? '' : 's'}</span>
+    </button>`;
+  };
+  $('#moduleMenu').innerHTML = `<div class="mm-title">Switch module</div>
+    ${item('All', 'All Modules', FEATURES)}<div class="mm-sep"></div>
+    ${MODULES.map(m => item(m, m, FEATURES.filter(f => f.module === m))).join('')}`;
+}
+function toggleModuleMenu(open) {
+  const p = $('#modulePicker');
+  const isOpen = open == null ? !p.classList.contains('open') : open;
+  p.classList.toggle('open', isOpen);
+  $('#moduleBtn').setAttribute('aria-expanded', isOpen);
+}
+function pickModule(name) { toggleModuleMenu(false); setModule(name); }
+$('#moduleBtn').addEventListener('click', e => { e.stopPropagation(); toggleModuleMenu(); });
+document.addEventListener('click', e => { if (!e.target.closest('#modulePicker')) toggleModuleMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleModuleMenu(false); });
+
+function render() {
+  renderNav();
+  const views = { modules: viewModules, overview: viewOverview, screens: viewScreens, blockers: viewBlockers, features: viewFeatures, retests: viewRetests };
+  $('#view').innerHTML = views[state.tab]();
+  if (UPDATED) $('#updated').textContent = 'Updated ' + UPDATED.toLocaleString();
+}
+
+
+// Search box → jumps to the Features view
+$('#search').addEventListener('input', e => { state.q = e.target.value.trim(); if (state.tab !== 'features') state.tab = 'features'; render(); $('#search').focus(); });
+
+// Tooltip for chart marks (anything with data-tip)
+const tip = $('#tooltip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) { tip.style.display = 'none'; return; }
+  tip.textContent = t.getAttribute('data-tip');
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 10) + 'px';
+  tip.style.top = (e.clientY + 14) + 'px';
+});
+
+function load() {
+  $('#view').innerHTML = '<div class="loading">Loading data…</div>';
+  if (window.SAMPLE_DATA) { normalize(window.SAMPLE_DATA); render(); return; }
+  if (window.DATA_URL) {
+    fetch(window.DATA_URL + '?format=json')
+      .then(r => r.json())
+      .then(data => { normalize(data); render(); })
+      .catch(err => { $('#view').innerHTML = `<div class="glass panel empty">Could not load the data: ${esc(err.message || err)}</div>`; });
+    return;
+  }
+  if (window.google && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(data => { normalize(data); render(); })
+      .withFailureHandler(err => { $('#view').innerHTML = `<div class="glass panel empty">Could not load the sheet: ${esc(err.message || err)}</div>`; })
+      .getData();
+  } else {
+    $('#view').innerHTML = '<div class="glass panel empty">No data source found.</div>';
+  }
+}
+$('#refresh').onclick = load;
+load();
+</script>
+</body>
+</html>
